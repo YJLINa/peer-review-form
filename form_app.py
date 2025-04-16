@@ -66,12 +66,12 @@ st.markdown("""
 # ---------------------------
 # 檔案讀取與前置處理
 # ---------------------------
-if not os.path.exists("data/評分項目_測試.xlsx") or not os.path.exists("data/互評名單_測試.xlsx"):
+if not os.path.exists("data/評分項目.xlsx") or not os.path.exists("data/互評名單.xlsx"):
     st.error("⚠️ 請先由管理者上傳評分項目與互評名單設定檔")
     st.stop()
 
-questions_df = pd.read_excel("data/評分項目_測試.xlsx")
-people_df = pd.read_excel("data/互評名單_測試.xlsx")
+questions_df = pd.read_excel("data/評分項目.xlsx")
+people_df = pd.read_excel("data/互評名單.xlsx")
 
 # 解析題目：依照大項目分群
 questions = defaultdict(list)
