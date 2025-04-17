@@ -10,6 +10,27 @@ import time
 # ---------------------------
 st.set_page_config(page_title="部門互評問卷", layout="wide")
 
+# 放在最前面，其他 st.markdown 之前
+st.markdown(
+    """
+    <style>
+    /* 主畫面背景 */
+    [data-testid="stAppViewContainer"],
+    /* 頂部 header 背景 */
+    [data-testid="stHeader"],
+    /* 底部 footer 背景 */
+    [data-testid="stFooter"] {
+        background-color: #0e1117 !important;
+    }
+    /* 內容區塊 */
+    .css-1d391kg, .css-12oz5g7 {
+        background-color: transparent !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 # ---------------------------
 # Anchor for top
 # ---------------------------
@@ -56,18 +77,12 @@ window.scrollTo({ top: 0, behavior: 'smooth' });
 # 初始化 session_state
 # ---------------------------
 state = st.session_state
-if "user" not in state:
-    state.user = None
-if "page" not in state:
-    state.page = 0
-if "answers" not in state:
-    state.answers = []
-if "scores" not in state:
-    state.scores = {}
-if "submitted" not in state:
-    state.submitted = False
-if "just_switched_page" not in state:
-    state.just_switched_page = False
+if "user" not in state: state.user = None
+if "page" not in state: state.page = 0
+if "answers" not in state: state.answers = []
+if "scores" not in state: state.scores = {}
+if "submitted" not in state: state.submitted = False
+if "just_switched_page" not in state: state.just_switched_page = False
 
 # ---------------------------
 # 已提交檢查
@@ -83,7 +98,7 @@ if not os.path.exists("data/評分項目_2025Q1問卷.xlsx") or not os.path.exis
     st.stop()
 
 questions_df = pd.read_excel("data/評分項目_2025Q1問卷.xlsx")
-people_df = pd.read_excel("data/互評名單_2025Q1問卷.xlsx")
+people_df    = pd.read_excel("data/互評名單_2025Q1問卷.xlsx")
 
 # 解析題目
 questions = defaultdict(list)
@@ -101,17 +116,16 @@ for _, row in questions_df.iterrows():
 project_cols = people_df.columns[2:]
 review_map = defaultdict(lambda: defaultdict(list))
 for _, row in people_df.iterrows():
-    reviewer = row["填答者"]
-    reviewee = row["被評者"]
+    reviewer = row["被評者"]
+    reviewee = row["填答者"]
     for proj in project_cols:
         if pd.notna(row[proj]) and str(row[proj]).strip():
             review_map[reviewer][proj].append(reviewee)
 
 # ---------------------------
-# 選擇填答者 (選擇名字前顯示問卷資訊)
+# 選擇填答者
 # ---------------------------
 if not state.user:
-    # 調整標題顏色為深色，確保可見
     st.markdown('<h1 style="color:#FCFCFC; font-size:40px;">📋 2025Q1部門內部通評問卷</h1>', unsafe_allow_html=True)
     st.markdown('<p style="color:#FCFCFC; font-size:22px;">請根據專案和合作對象的協作情況填寫問卷。</p>', unsafe_allow_html=True)
     st.markdown('<p style="color:#FF5151; font-size:20px;">⚠️ 確實選擇身分，一人限填一次。</p>', unsafe_allow_html=True)
@@ -123,7 +137,7 @@ if not state.user:
 user = state.user
 
 # ---------------------------
-# 已填過
+# 檢查是否已填過
 # ---------------------------
 if user in submitted_users["填答者"].values or state.submitted:
     st.title("✅ 感謝填寫問卷！")
@@ -146,28 +160,38 @@ if state.just_switched_page:
     state.just_switched_page = False
 
 # ---------
-# Sidebar 固定標題、進度與回頂部
+# Sidebar 固定資訊
 # ---------
 st.sidebar.title("📋 2025Q1部門內部通評問卷")
 st.sidebar.markdown(
     f"""
     **專案：** {curr_proj}  
-    **對象：** {curr_target}
-    """, unsafe_allow_html=True)
+    **對象：** {curr_target}  
+    """,
+    unsafe_allow_html=True
+)
+
+st.sidebar.image(
+    "data/DUN_吉卜力.png",           # 圖片路徑
+    # caption="部門標誌",         # 圖片下方說明文字
+    # use_column_width=True      # 讓圖片寬度撐滿側邊欄
+)
 st.sidebar.markdown(f"進度：{state.page+1} / {len(pages)}")
 st.sidebar.markdown("<a href='#top'>🔝 回頂部</a>", unsafe_allow_html=True)
 
 # ---------
 # 主畫面標題
 # ---------
-st.title("📋 部門通評問卷")
+st.title("📋 2025Q1部門內部通評問卷")
 st.markdown(
     f"""
     <div style='padding:1.5rem; background:#f9f9f9; border-left:6px solid #1f77b4; margin-bottom:1.5rem; font-size:1.5rem; font-weight:bold; color:#000;'>
         <b>專案：</b>{curr_proj}<br>
         <b>對象：</b>{curr_target}
     </div>
-    """, unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True
+)
 
 # ---------------------------
 # 問卷內容
@@ -191,17 +215,13 @@ total_q = sum(len(v) for v in questions.values())
 answered = 0
 cnt = 1
 for cat, qlist in questions.items():
-    st.markdown(f"""
-    <hr style='border:none; border-top:1px solid #ccc; margin:1rem 0;'>
-    <h3 style='color:#FFFFFF;'>📘 {cat}</h3>
-    """, unsafe_allow_html=True)
+    st.markdown(f"<hr style='border:none; border-top:1px solid #ccc; margin:1rem 0;'><h3 style='color:#FFFFFF;'>📘 {cat}</h3>", unsafe_allow_html=True)
     for q in qlist:
         key = f"{curr_proj}_{curr_target}_{q['子項目']}"
         st.markdown(f"<div style='font-size:1.5rem; font-weight:bold; margin-top:2rem; color:#FCFCFC;'>Q{cnt}. {q['子項目']}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='font-size:1.3rem; color:#E0E0E0; line-height:1.6'>{q['說明']}</div>", unsafe_allow_html=True)
         cols = st.columns(10)
         for i, col in enumerate(cols, start=1):
-            # 將說明設為 tooltip 懸浮提示
             if col.button(str(i), key=f"btn_{key}_{i}", use_container_width=True,
                           type="primary" if state.scores.get(key)==i else "secondary",
                           help=score_labels[i]):
@@ -225,24 +245,25 @@ for cat, qlist in questions.items():
 # 進度條 & 分頁控制
 # ---------------------------
 st.progress(answered/total_q, text=f"已完成 {answered}/{total_q} 題")
-
 st.markdown(f"**{state.page+1}/{len(pages)}**")
-col1, col2 = st.columns([1,3])
-with col1:
-    if state.page>0 and col1.button("⬅️ 上一位"):
-        state.page -=1
+
+# 3 欄並排：上一位｜下一位/完成填寫｜回頂部
+col_prev, col_next, col_top = st.columns([1,1,1])
+with col_prev:
+    if state.page > 0 and st.button("⬅️ 上一位"):
+        state.page -= 1
         state.just_switched_page = True
         st.rerun()
-with col2:
-    if state.page < len(pages)-1 and col2.button("➡️ 下一位"):
+with col_next:
+    if state.page < len(pages)-1 and st.button("➡️ 下一位"):
         if missing:
             st.error("請填完所有題目再繼續")
         else:
             state.answers.extend(answers_page)
-            state.page +=1
+            state.page += 1
             state.just_switched_page = True
             st.rerun()
-    elif state.page==len(pages)-1 and col2.button("✅ 完成填寫"):
+    elif state.page == len(pages)-1 and st.button("✅ 完成填寫"):
         if missing:
             st.error("還有題目未填寫")
         else:
@@ -254,10 +275,11 @@ with col2:
                 df_all = pd.concat([old_df, df], ignore_index=True)
             else:
                 df_all = df
-
-            # df_all = pd.concat([pd.read_csv("data/results.csv") if os.path.exists("data/results.csv") else df, df], ignore_index=True)
             df_all.to_csv("data/results.csv", index=False)
             submitted_users = pd.concat([submitted_users, pd.DataFrame([{"填答者": user}])], ignore_index=True)
             submitted_users.to_csv(submitted_file, index=False)
             st.success("✅ 已完成提交，感謝！")
             state.submitted = True
+with col_top:
+    # 這裏就是把回頂部放在按鈕區
+    st.markdown("<a href='#top'>🔝 回頂部</a>", unsafe_allow_html=True)
