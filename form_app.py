@@ -3,34 +3,20 @@ import pandas as pd
 import os
 from collections import defaultdict
 from datetime import datetime
+import time
 
+# ---------------------------
+# 頁面設定
+# ---------------------------
 st.set_page_config(page_title="部門互評問卷", layout="wide")
 
 # ---------------------------
-# 初始化 session_state
+# Anchor for top
 # ---------------------------
-if "user" not in st.session_state:
-    st.session_state.user = None
-if "page" not in st.session_state:
-    st.session_state.page = 0
-if "answers" not in st.session_state:
-    st.session_state.answers = []
-if "scores" not in st.session_state:
-    st.session_state.scores = {}
-if "submitted" not in st.session_state:
-    st.session_state.submitted = False
+st.markdown("<a id='top'></a>", unsafe_allow_html=True)
 
 # ---------------------------
-# 若填過則阻擋
-# ---------------------------
-submitted_file = "data/submitted_users.csv"
-if os.path.exists(submitted_file):
-    submitted_users = pd.read_csv(submitted_file)
-else:
-    submitted_users = pd.DataFrame(columns=["填答者"])
-
-# ---------------------------
-# 自訂樣式
+# 自訂樣式與 JavaScript 滾動至頂
 # ---------------------------
 st.markdown("""
 <style>
@@ -61,192 +47,217 @@ st.markdown("""
     border: 2px solid #1f77b4;
 }
 </style>
+<script>
+window.scrollTo({ top: 0, behavior: 'smooth' });
+</script>
 """, unsafe_allow_html=True)
 
 # ---------------------------
-# 檔案讀取與前置處理
+# 初始化 session_state
 # ---------------------------
-if not os.path.exists("data/評分項目.xlsx") or not os.path.exists("data/互評名單_格式更新.xlsx"):
+state = st.session_state
+if "user" not in state:
+    state.user = None
+if "page" not in state:
+    state.page = 0
+if "answers" not in state:
+    state.answers = []
+if "scores" not in state:
+    state.scores = {}
+if "submitted" not in state:
+    state.submitted = False
+if "just_switched_page" not in state:
+    state.just_switched_page = False
+
+# ---------------------------
+# 已提交檢查
+# ---------------------------
+submitted_file = "data/submitted_users.csv"
+submitted_users = pd.read_csv(submitted_file) if os.path.exists(submitted_file) else pd.DataFrame(columns=["填答者"])
+
+# ---------------------------
+# 資料讀取與前置處理
+# ---------------------------
+if not os.path.exists("data/評分項目_2025Q1問卷.xlsx") or not os.path.exists("data/互評名單_2025Q1問卷.xlsx"):
     st.error("⚠️ 請先由管理者上傳評分項目與互評名單設定檔")
     st.stop()
 
-questions_df = pd.read_excel("data/評分項目.xlsx")
-people_df = pd.read_excel("data/互評名單_格式更新.xlsx")
+questions_df = pd.read_excel("data/評分項目_2025Q1問卷.xlsx")
+people_df = pd.read_excel("data/互評名單_2025Q1問卷.xlsx")
 
-# 解析題目：依照大項目分群
+# 解析題目
 questions = defaultdict(list)
-current_category = ""
+current_cat = None
 for _, row in questions_df.iterrows():
-    if not pd.isna(row["大項目"]):
-        current_category = row["大項目"]
+    if pd.notna(row["大項目"]):
+        current_cat = row["大項目"]
     if pd.notna(row["子項目"]):
-        questions[current_category].append({
+        questions[current_cat].append({
             "子項目": row["子項目"],
             "說明": str(row["說明"]).strip()
         })
 
-# ---------------------------
-# 轉換互評名單
-# ---------------------------
-project_names = people_df.columns[2:]
-reviewer_project_map = defaultdict(lambda: defaultdict(list))
+# 建立 reviewer->project->reviewees 映射
+project_cols = people_df.columns[2:]
+review_map = defaultdict(lambda: defaultdict(list))
 for _, row in people_df.iterrows():
     reviewer = row["填答者"]
     reviewee = row["被評者"]
-    for project in project_names:
-        if pd.notna(row[project]) and str(row[project]).strip() != "":
-            reviewer_project_map[reviewer][project].append(reviewee)
+    for proj in project_cols:
+        if pd.notna(row[proj]) and str(row[proj]).strip():
+            review_map[reviewer][proj].append(reviewee)
 
 # ---------------------------
-# 選擇填答者
+# 選擇填答者 (選擇名字前顯示問卷資訊)
 # ---------------------------
-if not st.session_state.user:
-    name = st.selectbox("請選擇你的名字開始填答：", ["請選擇"] + list(reviewer_project_map.keys()))
+if not state.user:
+    # 調整標題顏色為深色，確保可見
+    st.markdown('<h1 style="color:#FCFCFC; font-size:40px;">📋 2025Q1部門內部通評問卷</h1>', unsafe_allow_html=True)
+    st.markdown('<p style="color:#FCFCFC; font-size:22px;">請根據專案和合作對象的協作情況填寫問卷。</p>', unsafe_allow_html=True)
+    st.markdown('<p style="color:#FF5151; font-size:20px;">⚠️ 確實選擇身分，一人限填一次。</p>', unsafe_allow_html=True)
+    name = st.selectbox("請選擇你的名字：", ["請選擇"] + list(review_map.keys()))
     if name != "請選擇":
-        st.session_state.user = name
+        state.user = name
         st.rerun()
     st.stop()
-
-user = st.session_state.user
+user = state.user
 
 # ---------------------------
-# 若使用者已填過
+# 已填過
 # ---------------------------
-if user in submitted_users["填答者"].values or st.session_state.submitted:
+if user in submitted_users["填答者"].values or state.submitted:
     st.title("✅ 感謝填寫問卷！")
-    st.success("您的回覆已成功提交，感謝您的協助！")
+    st.success("您的回覆已成功提交，感謝！")
     st.stop()
 
 # ---------------------------
-# 頁面順序
+# 準備分頁資料
 # ---------------------------
-pages = []
-for proj in reviewer_project_map[user].keys():
-    for person in reviewer_project_map[user][proj]:
-        pages.append((proj, person))
+pages = [(proj, t) for proj, targets in review_map[user].items() for t in targets]
+if state.page >= len(pages): state.page = 0
+curr_proj, curr_target = pages[state.page]
 
-if st.session_state.page >= len(pages):
-    st.session_state.page = 0
+# ---------------------------
+# 切換提示
+# ---------------------------
+if state.just_switched_page:
+    with st.spinner("切換頁面中…"):
+        time.sleep(0.6)
+    state.just_switched_page = False
 
-curr_proj, curr_target = pages[st.session_state.page]
+# ---------
+# Sidebar 固定標題、進度與回頂部
+# ---------
+st.sidebar.title("📋 2025Q1部門內部通評問卷")
+st.sidebar.markdown(
+    f"""
+    **專案：** {curr_proj}  
+    **對象：** {curr_target}
+    """, unsafe_allow_html=True)
+st.sidebar.markdown(f"進度：{state.page+1} / {len(pages)}")
+st.sidebar.markdown("<a href='#top'>🔝 回頂部</a>", unsafe_allow_html=True)
 
-st.title("📋 部門互評問卷")
-
-st.markdown(f"""
-<div style='padding: 1.5rem; background-color: #f9f9f9; border-left: 6px solid #1f77b4; margin-bottom: 1.5rem; font-size: 1.8rem; font-weight: bold; color: black;'>
-    <b> 專案名稱：</b> {curr_proj} <br>
-    <b> 合作對象：</b> {curr_target}
-</div>
-""", unsafe_allow_html=True)
+# ---------
+# 主畫面標題
+# ---------
+st.title("📋 部門通評問卷")
+st.markdown(
+    f"""
+    <div style='padding:1.5rem; background:#f9f9f9; border-left:6px solid #1f77b4; margin-bottom:1.5rem; font-size:1.5rem; font-weight:bold; color:#000;'>
+        <b>專案：</b>{curr_proj}<br>
+        <b>對象：</b>{curr_target}
+    </div>
+    """, unsafe_allow_html=True)
 
 # ---------------------------
 # 問卷內容
 # ---------------------------
-score_labels = {
-    1: "完全不符合該項目內容，無相關經驗",
-    2: "對該項目內容有基本概念，但無法獨立操作",
-    3: "能夠在指導下完成簡單任務",
-    4: "能夠獨立完成基礎工作，但可能需參考資料或請教他人",
-    5: "具備基本執行能力，能處理一般狀況，並能遵循流程",
-    6: "能熟練應用並處理複雜問題，能適時優化方法",
-    7: "能主動解決問題並提出改進建議",
-    8: "具備高水準，能協助他人並提供有效指導",
-    9: "能設計並推動最佳實踐，產生明顯正向影響",
-    10: "能主導改進與創新，並影響團隊決策"
-}
+score_labels = {i: label for i, label in enumerate([
+    "完全不符合，無相關經驗",
+    "有概念，無法獨立操作",
+    "指導下可完成簡單任務",
+    "獨立處理基礎工作",
+    "基本執行能力，可遵循流程",
+    "熟練應用，處理複雜問題",
+    "主動解決並提出建議",
+    "高水準，可指導他人",
+    "設計最佳實踐，正向影響",
+    "主導創新，影響決策"
+], start=1)}
 
 missing = []
-answers_this_page = []
-total_questions = sum(len(q) for q in questions.values())
+answers_page = []
+total_q = sum(len(v) for v in questions.values())
 answered = 0
-question_counter = 1
-
-for category, qlist in questions.items():
-    with st.container():
-        st.markdown(f"""
-                <hr style="margin-top: 1rem; margin-bottom: 1rem; border: none; border-top: 1px solid #ccc;" />
-                <h3 style="margin-bottom: 0.5rem;">📘 {category}</h3>
-                """, unsafe_allow_html=True)
-        for q in qlist:
-            key = f"{curr_proj}_{curr_target}_{q['子項目']}"
-            st.markdown(f"<div style='font-size: 1.3rem; font-weight: bold; line-height: 1.6; margin-top: 2rem;'>Q{question_counter}. {q['子項目']}</div>", unsafe_allow_html=True)
-            st.markdown(f"<div style='font-size: 1.3rem; color: gray; line-height: 2'>{q['說明']}</div>", unsafe_allow_html=True)
-
-
-            selected_score = st.session_state.scores.get(key, None)
-            with st.container():
-                cols = st.columns(10)
-                for i, col in enumerate(cols):
-                    val = i + 1
-                    btn_key = f"btn_{key}_{val}"
-                    if col.button(
-                        f"{val}", key=btn_key,
-                        # help=f"{val}分 - {'非常不同意' if val==1 else '非常同意' if val==10 else ''}",
-                        help=f"{val}分 - {score_labels[val]}",
-                        use_container_width=True,
-                        type="primary" if selected_score == val else "secondary"):
-                        st.session_state.scores[key] = val
-                        st.rerun()
-
-            if selected_score is None:
-                missing.append(key)
-            else:
-                answered += 1
-            answers_this_page.append({
-                "填答者": user,
-                "專案": curr_proj,
-                "被評者": curr_target,
-                "大項目": category,
-                "子項目": q['子項目'],
-                "分數": st.session_state.scores.get(key)
-            })
-            question_counter += 1
+cnt = 1
+for cat, qlist in questions.items():
+    st.markdown(f"""
+    <hr style='border:none; border-top:1px solid #ccc; margin:1rem 0;'>
+    <h3 style='color:#FFFFFF;'>📘 {cat}</h3>
+    """, unsafe_allow_html=True)
+    for q in qlist:
+        key = f"{curr_proj}_{curr_target}_{q['子項目']}"
+        st.markdown(f"<div style='font-size:1.5rem; font-weight:bold; margin-top:2rem; color:#FCFCFC;'>Q{cnt}. {q['子項目']}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:1.3rem; color:#E0E0E0; line-height:1.6'>{q['說明']}</div>", unsafe_allow_html=True)
+        cols = st.columns(10)
+        for i, col in enumerate(cols, start=1):
+            # 將說明設為 tooltip 懸浮提示
+            if col.button(str(i), key=f"btn_{key}_{i}", use_container_width=True,
+                          type="primary" if state.scores.get(key)==i else "secondary",
+                          help=score_labels[i]):
+                state.scores[key] = i
+                st.rerun()
+        if state.scores.get(key) is None:
+            missing.append(key)
+        else:
+            answered += 1
+        answers_page.append({
+            "填答者": user,
+            "專案": curr_proj,
+            "被評者": curr_target,
+            "大項目": cat,
+            "子項目": q['子項目'],
+            "分數": state.scores.get(key)
+        })
+        cnt += 1
 
 # ---------------------------
-# 進度條顯示
+# 進度條 & 分頁控制
 # ---------------------------
-st.progress(answered / total_questions, text=f"已完成 {answered} / {total_questions} 題")
+st.progress(answered/total_q, text=f"已完成 {answered}/{total_q} 題")
 
-# ---------------------------
-# 分頁控制
-# ---------------------------
-st.markdown(f"**進度：{st.session_state.page+1} / {len(pages)}**")
-col1, col2 = st.columns([1, 3])
+st.markdown(f"**{state.page+1}/{len(pages)}**")
+col1, col2 = st.columns([1,3])
 with col1:
-    if st.session_state.page > 0:
-        if st.button("⬅️ 上一位"):
-            st.session_state.page -= 1
-            st.rerun()
+    if state.page>0 and col1.button("⬅️ 上一位"):
+        state.page -=1
+        state.just_switched_page = True
+        st.rerun()
 with col2:
-    if st.session_state.page < len(pages) - 1:
-        if st.button("➡️ 下一位"):
-            if missing:
-                st.error("請填完所有題目才能進行下一頁")
+    if state.page < len(pages)-1 and col2.button("➡️ 下一位"):
+        if missing:
+            st.error("請填完所有題目再繼續")
+        else:
+            state.answers.extend(answers_page)
+            state.page +=1
+            state.just_switched_page = True
+            st.rerun()
+    elif state.page==len(pages)-1 and col2.button("✅ 完成填寫"):
+        if missing:
+            st.error("還有題目未填寫")
+        else:
+            state.answers.extend(answers_page)
+            df = pd.DataFrame(state.answers)
+            df["填寫時間"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            if os.path.exists("data/results.csv"):
+                old_df = pd.read_csv("data/results.csv")
+                df_all = pd.concat([old_df, df], ignore_index=True)
             else:
-                st.session_state.answers.extend(answers_this_page)
-                st.session_state.page += 1
-                st.rerun()
-    else:
-        if st.button("✅ 完成填寫"):
-            if missing:
-                st.error("還有題目未填寫")
-            else:
-                st.session_state.answers.extend(answers_this_page)
-                st.success("✅ 問卷填寫完成！以下為結果")
-                df = pd.DataFrame(st.session_state.answers)
-                df["填寫時間"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                st.dataframe(df)
-                result_file = "data/results.csv"
-                if os.path.exists(result_file):
-                    existing = pd.read_csv(result_file)
-                    df_all = pd.concat([existing, df], ignore_index=True)
-                else:
-                    df_all = df
-                df_all.to_csv(result_file, index=False)
-                st.info("已自動儲存至 data/results.csv")
-                submitted_users = pd.concat([submitted_users, pd.DataFrame([{"填答者": user}])], ignore_index=True)
-                submitted_users.to_csv(submitted_file, index=False)
-                st.session_state.answers = []
-                st.session_state.page = 0
-                st.session_state.submitted = True
-                st.rerun()
+                df_all = df
+
+            # df_all = pd.concat([pd.read_csv("data/results.csv") if os.path.exists("data/results.csv") else df, df], ignore_index=True)
+            df_all.to_csv("data/results.csv", index=False)
+            submitted_users = pd.concat([submitted_users, pd.DataFrame([{"填答者": user}])], ignore_index=True)
+            submitted_users.to_csv(submitted_file, index=False)
+            st.success("✅ 已完成提交，感謝！")
+            state.submitted = True
