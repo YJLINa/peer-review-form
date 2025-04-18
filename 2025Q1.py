@@ -4,6 +4,7 @@ import os
 from collections import defaultdict
 from datetime import datetime
 import time
+import streamlit.components.v1 as components
 
 # ---------------------------
 # 頁面設定
@@ -87,7 +88,7 @@ if "just_switched_page" not in state: state.just_switched_page = False
 # ---------------------------
 # 已提交檢查
 # ---------------------------
-submitted_file = "data/submitted_users.csv"
+submitted_file = "data/2025Q1_RD6_submitted_users.csv"
 submitted_users = pd.read_csv(submitted_file) if os.path.exists(submitted_file) else pd.DataFrame(columns=["填答者"])
 
 # ---------------------------
@@ -155,8 +156,18 @@ curr_proj, curr_target = pages[state.page]
 # 切換提示
 # ---------------------------
 if state.just_switched_page:
-    with st.spinner("切換頁面中…"):
-        time.sleep(0.6)
+    # 插入 JS 在畫面 render 後強制滾動頂部
+    components.html("""
+    <script>
+        // 確保等 DOM load 完後再 scroll，避免被 Streamlit 的 layout 調整蓋掉
+        window.addEventListener("load", function() {
+            setTimeout(function() {
+window.location.href = '#top';
+ 
+            }, 100); // 等一下再滾，確保畫面先渲染完
+        });
+    </script>
+    """, height=0)
     state.just_switched_page = False
 
 # ---------
@@ -173,8 +184,7 @@ st.sidebar.markdown(
 
 st.sidebar.image(
     "data/DUN_吉卜力.png",           # 圖片路徑
-    # caption="部門標誌",         # 圖片下方說明文字
-    # use_column_width=True      # 讓圖片寬度撐滿側邊欄
+    width=150 
 )
 st.sidebar.markdown(f"進度：{state.page+1} / {len(pages)}")
 st.sidebar.markdown("<a href='#top'>🔝 回頂部</a>", unsafe_allow_html=True)
@@ -270,16 +280,13 @@ with col_next:
             state.answers.extend(answers_page)
             df = pd.DataFrame(state.answers)
             df["填寫時間"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            if os.path.exists("data/results.csv"):
-                old_df = pd.read_csv("data/results.csv")
+            if os.path.exists("data/2025Q1_RD6_result.csv"):
+                old_df = pd.read_csv("data/2025Q1_RD6_result.csv")
                 df_all = pd.concat([old_df, df], ignore_index=True)
             else:
                 df_all = df
-            df_all.to_csv("data/results.csv", index=False)
+            df_all.to_csv("data/2025Q1_RD6_result.csv", index=False)
             submitted_users = pd.concat([submitted_users, pd.DataFrame([{"填答者": user}])], ignore_index=True)
             submitted_users.to_csv(submitted_file, index=False)
             st.success("✅ 已完成提交，感謝！")
             state.submitted = True
-with col_top:
-    # 這裏就是把回頂部放在按鈕區
-    st.markdown("<a href='#top'>🔝 回頂部</a>", unsafe_allow_html=True)
